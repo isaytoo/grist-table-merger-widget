@@ -390,7 +390,7 @@ async function mergeTables() {
     const table1Name = table1Select.value;
     const table2Name = table2Select.value;
     
-    // Create lookup map for table 2 data
+    // Create lookup map for table 2 data (keyed by row ID)
     const table2Map = new Map();
     if (APP.table2Data.id) {
       for (let i = 0; i < APP.table2Data.id.length; i++) {
@@ -400,6 +400,11 @@ async function mergeTables() {
           rowData[colId] = APP.table2Data[colId][i];
         }
         table2Map.set(rowId, rowData);
+      }
+      console.log('Table 2 map size:', table2Map.size);
+      console.log('Table 2 map keys (row IDs):', [...table2Map.keys()]);
+      if (table2Map.size > 0) {
+        console.log('Sample table 2 row:', table2Map.get([...table2Map.keys()][0]));
       }
     }
     
