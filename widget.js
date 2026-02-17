@@ -309,11 +309,8 @@ async function mergeTables() {
       if (!APP.selectedColumns.has(key)) continue;
       if (col.colId === 'id') continue;
       
-      // Clean up type - remove Ref: prefix for non-reference columns in merged table
+      // Keep original type including Ref: and RefList:
       let colType = col.type;
-      if (colType.startsWith('Ref:') || colType.startsWith('RefList:')) {
-        colType = 'Int'; // Convert references to Int (row IDs)
-      }
       
       if (col.isFormula) {
         formulaColumns.push({
@@ -346,11 +343,8 @@ async function mergeTables() {
       // Skip if already added from table 1
       if (dataColumns.some(c => c.colId === col.colId) || formulaColumns.some(c => c.colId === col.colId)) continue;
       
-      // Clean up type
+      // Keep original type including Ref: and RefList:
       let colType = col.type;
-      if (colType.startsWith('Ref:') || colType.startsWith('RefList:')) {
-        colType = 'Int';
-      }
       
       if (col.isFormula) {
         formulaColumns.push({
@@ -383,6 +377,20 @@ async function mergeTables() {
     await grist.docApi.applyUserActions([
       ['AddTable', newTableName, columns]
     ]);
+    
+    // Force column types with ModifyColumn (Grist sometimes ignores types in AddTable)
+    updateProgress(20, 'Application des types de colonnes...');
+    for (const col of dataColumns) {
+      if (col.type && col.type !== 'Text' && col.type !== 'Any') {
+        try {
+          await grist.docApi.applyUserActions([
+            ['ModifyColumn', newTableName, col.colId, { type: col.type }]
+          ]);
+        } catch (e) {
+          console.warn(`Could not set type for ${col.colId}:`, e);
+        }
+      }
+    }
     
     updateProgress(25, 'Préparation des données...');
     
