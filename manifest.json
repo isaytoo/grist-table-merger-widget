@@ -1,0 +1,14 @@
+{
+  "name": "Table Merger",
+  "description": "Fusionnez deux tables Grist en une seule, avec toutes les colonnes et formules préservées. Idéal pour consolider des données séparées ou créer des vues unifiées.",
+  "url": "index.html",
+  "author": "isaytoo",
+  "version": "1.0.0",
+  "minimumGristCoreVersion": "1.1.6",
+  "accessLevel": "full",
+  "icon": "merge",
+  "keywords": ["fusion", "merge", "tables", "migration", "consolidation"],
+  "components": {
+    "view": "index.html"
+  }
+}
