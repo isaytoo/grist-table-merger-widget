@@ -185,6 +185,9 @@ function showColumnsPreview() {
   previewCard.style.display = 'block';
   actionsCard.style.display = 'block';
   
+  // Clear previous selections
+  APP.selectedColumns.clear();
+  
   // Generate default table name
   newTableNameInput.value = `${table1Select.value}_${table2Select.value}_Merged`;
   
@@ -193,28 +196,29 @@ function showColumnsPreview() {
   
   // Table 1 columns
   APP.table1Columns.forEach(col => {
+    if (col.colId === 'id') return; // Skip id column
+    
     const typeClass = col.isFormula ? 'formula' : '';
-    const checked = col.colId !== 'id' ? 'checked' : '';
     APP.selectedColumns.add(`1:${col.colId}`);
     
     html += `
       <div class="column-item">
-        <input type="checkbox" ${checked} data-source="1" data-col="${col.colId}" onchange="toggleColumn(this)">
+        <input type="checkbox" checked data-source="1" data-col="${col.colId}" onchange="toggleColumn(this)">
         <span class="column-name">${col.label || col.colId}</span>
         <span class="column-type ${typeClass}">${col.isFormula ? 'Formule' : col.type}</span>
         <span class="column-source ugp">${table1Select.value}</span>
         ${col.isFormula ? `<span class="toggle-formula" onclick="toggleFormula(this)">voir</span>` : ''}
       </div>
-      ${col.isFormula ? `<div class="formula-preview hidden">${col.formula}</div>` : ''}
+      ${col.isFormula ? `<div class="formula-preview hidden">${escapeHtml(col.formula)}</div>` : ''}
     `;
   });
   
   // Table 2 columns (excluding link column and id)
   const linkCol = linkColumnSelect.value.split(':')[1];
   APP.table2Columns.forEach(col => {
-    if (col.colId === 'id' || col.colId === linkCol) return;
+    if (col.colId === 'id') return; // Skip id column
     
-    // Check if column already exists in table 1
+    // Check if column already exists in table 1 (by colId)
     const existsInTable1 = APP.table1Columns.some(c => c.colId === col.colId);
     if (existsInTable1) return; // Skip duplicates
     
@@ -229,11 +233,21 @@ function showColumnsPreview() {
         <span class="column-source compta">${table2Select.value}</span>
         ${col.isFormula ? `<span class="toggle-formula" onclick="toggleFormula(this)">voir</span>` : ''}
       </div>
-      ${col.isFormula ? `<div class="formula-preview hidden">${col.formula}</div>` : ''}
+      ${col.isFormula ? `<div class="formula-preview hidden">${escapeHtml(col.formula)}</div>` : ''}
     `;
   });
   
   columnsPreview.innerHTML = html;
+  
+  console.log('Table 1 columns:', APP.table1Columns.map(c => c.colId));
+  console.log('Table 2 columns:', APP.table2Columns.map(c => c.colId));
+  console.log('Selected columns:', [...APP.selectedColumns]);
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text || '';
+  return div.innerHTML;
 }
 
 function toggleColumn(checkbox) {
@@ -286,15 +300,25 @@ async function mergeTables() {
     // Get link column info
     const [linkType, linkCol] = linkColumnSelect.value.split(':');
     
+    console.log('Link type:', linkType, 'Link col:', linkCol);
+    console.log('Selected columns:', [...APP.selectedColumns]);
+    
     // Process selected columns from table 1
     for (const col of APP.table1Columns) {
       const key = `1:${col.colId}`;
       if (!APP.selectedColumns.has(key)) continue;
       if (col.colId === 'id') continue;
       
+      // Clean up type - remove Ref: prefix for non-reference columns in merged table
+      let colType = col.type;
+      if (colType.startsWith('Ref:') || colType.startsWith('RefList:')) {
+        colType = 'Int'; // Convert references to Int (row IDs)
+      }
+      
       if (col.isFormula) {
         formulaColumns.push({
           colId: col.colId,
+          label: col.label,
           type: col.type,
           formula: col.formula,
           source: 1,
@@ -302,12 +326,13 @@ async function mergeTables() {
       } else {
         dataColumns.push({
           colId: col.colId,
-          type: col.type,
+          label: col.label,
+          type: colType,
           source: 1,
         });
         columns.push({
           id: col.colId,
-          fields: { type: col.type === 'Any' ? 'Text' : col.type, label: col.label }
+          fields: { type: colType === 'Any' ? 'Text' : colType, label: col.label || col.colId }
         });
       }
     }
@@ -316,14 +341,21 @@ async function mergeTables() {
     for (const col of APP.table2Columns) {
       const key = `2:${col.colId}`;
       if (!APP.selectedColumns.has(key)) continue;
-      if (col.colId === 'id' || col.colId === linkCol) continue;
+      if (col.colId === 'id') continue;
       
       // Skip if already added from table 1
       if (dataColumns.some(c => c.colId === col.colId) || formulaColumns.some(c => c.colId === col.colId)) continue;
       
+      // Clean up type
+      let colType = col.type;
+      if (colType.startsWith('Ref:') || colType.startsWith('RefList:')) {
+        colType = 'Int';
+      }
+      
       if (col.isFormula) {
         formulaColumns.push({
           colId: col.colId,
+          label: col.label,
           type: col.type,
           formula: col.formula,
           source: 2,
@@ -331,15 +363,19 @@ async function mergeTables() {
       } else {
         dataColumns.push({
           colId: col.colId,
-          type: col.type,
+          label: col.label,
+          type: colType,
           source: 2,
         });
         columns.push({
           id: col.colId,
-          fields: { type: col.type === 'Any' ? 'Text' : col.type, label: col.label }
+          fields: { type: colType === 'Any' ? 'Text' : colType, label: col.label || col.colId }
         });
       }
     }
+    
+    console.log('Data columns:', dataColumns.map(c => c.colId));
+    console.log('Formula columns:', formulaColumns.map(c => c.colId));
     
     updateProgress(15, 'Création de la nouvelle table...');
     
@@ -371,20 +407,29 @@ async function mergeTables() {
     const mergedRecords = [];
     const rowCount = APP.table1Data.id ? APP.table1Data.id.length : 0;
     
+    console.log('Table 1 data keys:', Object.keys(APP.table1Data));
+    console.log('Table 2 data keys:', Object.keys(APP.table2Data));
+    console.log('Row count:', rowCount);
+    
     for (let i = 0; i < rowCount; i++) {
       const record = {};
       
       // Get data from table 1
       for (const col of dataColumns.filter(c => c.source === 1)) {
-        record[col.colId] = APP.table1Data[col.colId] ? APP.table1Data[col.colId][i] : null;
+        const value = APP.table1Data[col.colId] ? APP.table1Data[col.colId][i] : null;
+        record[col.colId] = value;
       }
       
       // Get linked table 2 row
       let table2Row = null;
       if (linkType === 'ref') {
         const refId = APP.table1Data[linkCol] ? APP.table1Data[linkCol][i] : null;
+        console.log(`Row ${i}: linkCol=${linkCol}, refId=${refId}`);
         if (refId) {
           table2Row = table2Map.get(refId);
+          if (!table2Row) {
+            console.log(`  No match found in table2Map for refId=${refId}`);
+          }
         }
       } else if (linkType === 'common') {
         const linkValue = APP.table1Data[linkCol] ? APP.table1Data[linkCol][i] : null;
@@ -400,12 +445,20 @@ async function mergeTables() {
       // Get data from table 2
       if (table2Row) {
         for (const col of dataColumns.filter(c => c.source === 2)) {
-          record[col.colId] = table2Row[col.colId] !== undefined ? table2Row[col.colId] : null;
+          const value = table2Row[col.colId] !== undefined ? table2Row[col.colId] : null;
+          record[col.colId] = value;
+        }
+      } else {
+        // Set null for table 2 columns if no match
+        for (const col of dataColumns.filter(c => c.source === 2)) {
+          record[col.colId] = null;
         }
       }
       
       mergedRecords.push(record);
     }
+    
+    console.log('First merged record:', mergedRecords[0]);
     
     updateProgress(50, 'Insertion des données...');
     
